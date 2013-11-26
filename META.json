@@ -33,6 +33,10 @@
       }
    },
    "provides" : {
+      "Locale::Po4a::AsciiDoc" : {
+         "file" : "lib/Locale/Po4a/AsciiDoc.pm",
+         "version" : 0
+      },
       "Locale::Po4a::BibTeX" : {
          "file" : "lib/Locale/Po4a/BibTeX.pm",
          "version" : 0
@@ -103,7 +107,7 @@
       },
       "Locale::Po4a::TransTractor" : {
          "file" : "lib/Locale/Po4a/TransTractor.pm",
-         "version" : "0.44"
+         "version" : "0.45"
       },
       "Locale::Po4a::Wml" : {
          "file" : "lib/Locale/Po4a/Wml.pm",
@@ -124,5 +128,5 @@
          "http://www.gnu.org/licenses/old-licenses/gpl-1.0.txt"
       ]
    },
-   "version" : "0.44"
+   "version" : "0.45"
 }

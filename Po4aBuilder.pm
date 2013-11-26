@@ -1,8 +1,9 @@
 package Po4aBuilder;
 use Module::Build;
 use File::Basename;
-use File::Path;
+use File::Path qw(mkpath rmtree);
 use File::Spec;
+use File::Copy qw(copy);
 use File::stat;
 
 @ISA = qw(Module::Build);
@@ -48,8 +49,9 @@ sub ACTION_binpo {
     my @all_files = (@perl_files, @shell_files);
     unless ($self->up_to_date(\@all_files, "po/bin/po4a.pot")) {
         print "XX Update po/bin/po4a-perl.pot\n";
+        chdir "po/bin";
         $sources = join ("", map {" ../../".$_ } @perl_files);
-        $cmd = "cd po/bin; xgettext ";
+        $cmd = "xgettext ";
         $cmd .= "--from-code=utf-8 ";
         $cmd .= "-L Perl ";
         $cmd .= "--add-comments ";
@@ -62,7 +64,7 @@ sub ACTION_binpo {
 
         print "XX Update po/bin/po4a-shell.pot\n";
         $sources = join ("", map {" ../../".$_ } @shell_files);
-        $cmd = "cd po/bin; xgettext ";
+        $cmd = "xgettext ";
         $cmd .= "--from-code=utf-8 ";
         $cmd .= "-L shell ";
         $cmd .= "--add-comments ";
@@ -73,8 +75,9 @@ sub ACTION_binpo {
         $cmd .= "-o po4a-shell.pot";
         system($cmd) && die;
 
-        $cmd = "msgcat po/bin/po4a-perl.pot po/bin/po4a-shell.pot -o po/bin/po4a.pot.new";
+        $cmd = "msgcat po4a-perl.pot po4a-shell.pot -o po4a.pot.new";
         system($cmd) && die;
+        chdir "../..";
 
         unlink "po/bin/po4a-perl.pot" || die;
         unlink "po/bin/po4a-shell.pot" || die;
@@ -118,7 +121,7 @@ sub ACTION_binpo {
             print "XX $_ uptodate.\n";
         }
         unless ($self->up_to_date($_,"blib/po/$lang/LC_MESSAGES/po4a.mo")) {
-            File::Path::mkpath( File::Spec->catdir( 'blib', 'po', $lang, "LC_MESSAGES" ), 0, oct(777) );
+            mkpath( File::Spec->catdir( 'blib', 'po', $lang, "LC_MESSAGES" ), 0, oct(755) );
             system("msgfmt -o blib/po/$lang/LC_MESSAGES/po4a.mo $_") && die;
         } 
     }
@@ -190,20 +193,36 @@ sub ACTION_man {
     $options{utf8} = 1;
     my $parser = Pod::Man->new (%options);
 
+    my $manpath  = File::Spec->catdir( 'blib', 'man' );
+    File::Path::rmtree( $manpath, 0, 1);
+
     my $cmd = "PERL5LIB=lib perl po4a "; # Use this version of po4a
     $cmd .= $ENV{PO4AFLAGS}." " if defined($ENV{PO4AFLAGS});
     $cmd .= "--previous po/pod.cfg";
     system($cmd) and die;
-    system("mkdir -p blib/man/man7") and die;
-    system("mkdir -p blib/man/man1") and die;
-    system("cp doc/po4a.7.pod blib/man/man7") and die;
+
+    my $man1path = File::Spec->catdir( $manpath, 'man1' );
+    my $man3path = File::Spec->catdir( $manpath, 'man3' );
+    my $man5path = File::Spec->catdir( $manpath, 'man5' );
+    my $man7path = File::Spec->catdir( $manpath, 'man7' );
+    File::Path::mkpath( $man1path, 0, oct(755) ) or die;
+    File::Path::mkpath( $man3path, 0, oct(755) ) or die;
+    File::Path::mkpath( $man5path, 0, oct(755) ) or die;
+    File::Path::mkpath( $man7path, 0, oct(755) ) or die;
+    copy ( File::Spec->catdir("doc", "po4a-build.conf.5.pod"), $man5path) or die;
+    copy ( File::Spec->catdir("doc", "po4a.7.pod"), $man7path) or die;
+    copy ( File::Spec->catdir("doc", "po4a-runtime.7.pod"), $man7path) or die;
     foreach $file (perl_scripts()) {
         $file =~ m,([^/]*)$,;
-        system ("cp $file blib/man/man1/$1.1p.pod") and die;
+        copy($file, File::Spec->catdir($man1path, "$1.1p.pod")) or die;
     }
-    $self->delete_filetree("blib/bindoc") || die;
+    foreach $file (@{$self->rscan_dir('lib',qr{\.pm$})}) {
+        $file =~ m,([^/]*)$,;
+        copy($file, File::Spec->catdir($man3path, "Locale::Po4a::$1.3pm.pod")) or die;
+    }
+    $self->delete_filetree( File::Spec->catdir("blib", "bindoc") );
 
-    foreach $file (@{$self->rscan_dir('blib/man',qr{\.pod$})}) {
+    foreach $file (@{$self->rscan_dir($manpath, qr{\.pod$})}) {
         next if $file =~ m/^man7/;
         my $out = $file;
         $out =~ s/\.pod$//;
@@ -239,8 +258,10 @@ sub ACTION_man {
     }
 
     # Install the manpages written in XML DocBook
-    system ("cp share/doc/po4a-build.xml share/doc/po4aman-display-po.xml share/doc/po4apod-display-po.xml blib/man/man1/") and die;
-    foreach $file (@{$self->rscan_dir('blib/man',qr{\.xml$})}) {
+    foreach $file (qw(po4a-build.xml po4aman-display-po.xml po4apod-display-po.xml)) {
+        copy ( File::Spec->catdir("share", "doc", $file), $man1path) or die;
+    }
+    foreach $file (@{$self->rscan_dir($manpath, qr{\.xml$})}) {
         if ($file =~ m,(.*/man(.))/([^/]*)\.xml$,) {
             my ($outdir, $section, $outfile) = ($1, $2, $3);
             system("xsltproc -o $outdir/$outfile.$section --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $file") and die;
@@ -253,9 +274,9 @@ sub ACTION_man {
 sub ACTION_postats {
     my $self = shift;
     $self->depends_on('binpo');
-    $self->postats("po/bin");
-    $self->postats("po/pod");
-    $self->postats("po/www") if -d "po/www";
+    $self->postats( File::Spec->catdir("po", "bin"));
+    $self->postats( File::Spec->catdir("po", "pod"));
+    $self->postats( File::Spec->catdir("po", "www")) if -d File::Spec->catdir("po", "www");
 }
 
 sub postats {
